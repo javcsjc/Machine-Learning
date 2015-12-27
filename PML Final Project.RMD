@@ -1,0 +1,143 @@
+---
+title: "Practical Machine Learning Project"
+author: "Jose Alberto Valdez Crespo"
+date: "December 27, 2015"
+output: html_document
+---
+
+# Overview
+In this project, my goal is to use data from the Weight Lifting Exercise Dataset to predict the manner in which participants did the exercise.
+ 
+For more information about the dataset go to: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl. The effectiveness of each repetition was classified in five different classes: 
+
+1. Exactly according to the specification (Class A)
+2. Throwing the elbows to the front (Class B)
+3. Lifting lifting the dumbbell only halfway (Class C)
+4. Lowering the dumbbell only halfway (Class D), and
+5. Throwing the hips to the front (Class E). 
+
+Class A corresponds to an exercise performed correctly, while the other 4 classes correspond to common mistakes. 
+
+Participants were wearing 4 accelerometers to measure exercise effectiveness. These were located on the belt, forearm and arm of the participants + one to measure position and acceleration on the dumbbell. 
+# Source Data
+The training data for this project is available here: 
+
+* https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+# Load Data
+```{r Load Data, echo=FALSE, message=FALSE, warning=FALSE}
+library(plyr)
+library(dplyr)
+library(randomForest)
+library(parallel)
+library(caret)
+library(rpart)
+library(gbm)
+```
+
+```{r Read Source Data}
+trainset <- read.csv("pml-training.csv") ## Data for training the model
+```
+The training set has `r nrow(trainset)` observations with `r ncol(trainset)` variables. Turns out many variables are not relevant for this project, consequently we will need to do some cleaning.
+
+# Data Cleanup
+Given we only have 4 accelerometers, we only need to keep the information relevant to each accelerometers + the "classe" variable which identifies the respective class (A, B, C, D and E) for each repetition.
+
+Let's subset the data by each sensor starting with the belt sensor
+
+```{r Beltsensor subset}
+beltsensor <- select(trainset, roll_belt, pitch_belt, yaw_belt, total_accel_belt, gyros_belt_x, gyros_belt_y, gyros_belt_z, accel_belt_x, accel_belt_y, accel_belt_z, magnet_belt_x, magnet_belt_y, magnet_belt_z)
+```
+Now the beltsensor dataset contains `r nrow(beltsensor)` observations with only `r ncol(beltsensor)` variables. Let's do the same subsetting for the remaining 3 accelerometers and the "classe" variable.
+
+```{r Subsetting remaining accelerometers}
+armsensor <- select(trainset, roll_arm, pitch_arm, yaw_arm, total_accel_arm, gyros_arm_x, gyros_arm_y, gyros_arm_z, accel_arm_x, accel_arm_y, accel_arm_z, magnet_arm_x, magnet_arm_y, magnet_arm_z)
+
+dumbbellsensor <- select(trainset, roll_dumbbell, pitch_dumbbell, yaw_dumbbell, total_accel_dumbbell, gyros_dumbbell_x, gyros_dumbbell_y, gyros_dumbbell_z, accel_dumbbell_x, accel_dumbbell_y, accel_dumbbell_z, magnet_dumbbell_x, magnet_dumbbell_y, magnet_dumbbell_z)
+
+forearmsensor <- select(trainset, roll_forearm, pitch_forearm, yaw_forearm, total_accel_forearm, gyros_forearm_x, gyros_forearm_y, gyros_forearm_z, accel_forearm_x, accel_forearm_y, accel_forearm_z, magnet_forearm_x, magnet_forearm_y, magnet_forearm_z)
+
+classet <- select(trainset, classe)
+```
+
+Now that we have all the relevant variables, lets put them together in a single clean dataset.
+```{r Clean Dataset}
+cleantrainingset <- bind_cols(beltsensor,armsensor, forearmsensor, dumbbellsensor, classet)
+```
+The new clean training set has `r nrow(cleantrainingset)` observations with `r ncol(cleantrainingset)` variables. This is more reasonable than the 160 variables on the original training set.
+
+# Creating Training and Test Sets
+Here we are going to split the clean dataset into training and test subsets using a 75/25 ratio.
+
+```{r Creating Training and Test Sets}
+set.seed(1027)
+inTrain <- createDataPartition(cleantrainingset$classe, p = 0.75, list = FALSE)
+training <- cleantrainingset[inTrain,]
+testing <- cleantrainingset[-inTrain,]
+```
+
+# Machine Learning Algorithms Used
+The following Machine Learning Algorithms were used on this project to build models:
+
+* Decision Tree (caret method="rpart"")
+* Bagging (caret method="treebag")
+* Random Forest (caret method="rf")
+* Boosting (caret method="gbm")
+* Linear Discrimination Analysis (caret method="lda")
+
+Please refer to the Appendix section to see the relevant code and Confusion Matrices.
+
+# Results
+
+Model Name                     |  Accuracy  |  Kappa 
+-------------------------------|------------|---------
+Decision Tree                  |   0.3677   |  0.1268
+Bagging                        |   0.9865   |  0.9830
+Random Forest                  |   0.9951   |  0.9938
+Boosting                       |   0.9639   |  0.9543
+Linear Discrimination Analysis |   0.7102   |  0.6334
+
+# Conclusion
+Based on this information, we can clearly identify Random Forest, Bagging and Boosting (in respective order) as the most accurate models which can be used for predictions.
+
+Consequently, I've made the decision to use the Random Forest model for the submission portion of the project.
+
+*****
+# Appendix - Summaries and Confusion Matrices
+
+# Decision Tree
+```{r Decision Tree, cache=TRUE, message=FALSE, warning=FALSE}
+modFit1 <- train(classe ~., method = "rpart", data = training, trControl = trainControl(method = "cv", number = 5, allowParallel = TRUE))
+modFit1
+confusionMatrix(testing$classe, predict(modFit1, testing))
+```
+
+# Bagging
+```{r Bagging, cache=TRUE, message=FALSE, warning=FALSE}
+modFit2 <- train(classe ~., method = "treebag", data = training, trControl = trainControl(method = "cv", number = 5, allowParallel = TRUE))
+modFit2
+confusionMatrix(testing$classe, predict(modFit2, testing))
+```
+
+# Random Forest
+```{r Random Forest, cache=TRUE, message=FALSE, warning=FALSE}
+modFit3 <- train(classe ~., method = "rf", data = training, trControl = trainControl(method = "cv", number = 5, allowParallel = TRUE))
+modFit3
+confusionMatrix(testing$classe, predict(modFit3, testing))
+```
+
+# Boosting
+```{r Boosting, cache=TRUE, message=FALSE, warning=FALSE}
+modFit4 <- train(classe ~., method = "gbm", data = training, verbose = FALSE, trControl = trainControl(method = "cv", number = 5, allowParallel = TRUE))
+modFit4
+confusionMatrix(testing$classe, predict(modFit4, testing))
+```
+
+# Linear Discriminant Analysis
+```{r LDA, cache=TRUE, message=FALSE, warning=FALSE}
+modFit5 <- train(classe ~., method = "lda", data = training, trControl = trainControl(method = "cv", number = 5, allowParallel = TRUE))
+modFit5
+confusionMatrix(testing$classe, predict(modFit5, testing))
+```
